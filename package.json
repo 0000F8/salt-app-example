@@ -1,0 +1,17 @@
+{
+  "name": "salt-app-example",
+  "version": "1.0.0",
+  "description": "Simple Salt app that echoes what it's given.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Salt",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.5.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openpgp": "^5.10.1"
+  }
+}
