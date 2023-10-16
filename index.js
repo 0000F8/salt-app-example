@@ -9,41 +9,50 @@ const HOST = process.env.HOST;
 const userPublicKey = process.env.USER_PUBLIC_KEY;
 const appPublicKey = process.env.APP_PUBLIC_KEY;
 const appPrivateKey = process.env.APP_PRIVATE_KEY;
+const saltAppId = process.env.SALT_APP_ID;
 
 const apiKey = process.env.SALT_API_KEY;
 
 app.use(express.json()); // Parse JSON request body
 
 app.post('/', async (req, res) => {
-  const message = req.body.message;
-  const chatId = req.body.message.chat_id;
+  const body = req.body;
+  const message = body.message;
 
+  if(parseInt(message.user.id) === parseInt(saltAppId)) {
+    res.status(200).json({response: "Thanks!"});
+  } else {
+    console.log(message.user.id, saltAppId, message);
+    const chatId = req.body.message.chat_id;
 
-  const incomingEncryptedMessage = message.message;
+    const incomingEncryptedMessage = message.message;
 
-  // Decrypt message using app's private key
-  const incomingDecryptedMessage = await decryptWithPrivateKey(incomingEncryptedMessage, appPrivateKey, 'salt');
+    // Decrypt message using app's private key
+    const incomingDecryptedMessage = await decryptWithPrivateKey(incomingEncryptedMessage, appPrivateKey, 'salt');
 
-  if(incomingDecryptedMessage === undefined) {
-    res.json({success: 'undefined'});
+    if(incomingDecryptedMessage === undefined) {
+      console.log('[PUMPKIN]');
+      res.status(200).json({response: "Thanks!"});
+    } else {
+      console.log('[INCOMING DECRYPTED MSG]:', incomingDecryptedMessage);
+
+      const inferenceResponse = await sendToInferenceServer(incomingDecryptedMessage);
+
+      console.log('[INCOMING INFERENCE]', inferenceResponse);
+
+      // Encrypt messages for the user and sender
+      // const encryptedMessage = await encryptWithPublicKey(incomingDecryptedMessage, userPublicKey);
+      // const senderEncryptedMessage = await encryptWithPublicKey(incomingDecryptedMessage, appPublicKey);
+
+      const encryptedMessage = await encryptWithPublicKey(inferenceResponse, userPublicKey);
+      const senderEncryptedMessage = await encryptWithPublicKey(inferenceResponse, appPublicKey);
+
+      //console.log('[OUTGOING msgs]', encryptedMessage, senderEncryptedMessage);
+
+      const saltResponse = await sendToSalt(chatId, encryptedMessage, senderEncryptedMessage);
+      res.status(200).json({response: "Thanks!"});
+    }
   }
-  console.log('[INCOMING DECRYPTED MSG]:', incomingDecryptedMessage);
-
-
-  const inferenceResponse = await sendToInferenceServer(incomingDecryptedMessage);
-
-  console.log('[INCOMING INFERENCE]', inferenceResponse);
-
-  // Encrypt messages for the user and sender
-  // const encryptedMessage = await encryptWithPublicKey(incomingDecryptedMessage, userPublicKey);
-  // const senderEncryptedMessage = await encryptWithPublicKey(incomingDecryptedMessage, appPublicKey);
-
-  const encryptedMessage = await encryptWithPublicKey(inferenceResponse, userPublicKey);
-  const senderEncryptedMessage = await encryptWithPublicKey(inferenceResponse, appPublicKey);
-
-  //console.log('[OUTGOING msgs]', encryptedMessage, senderEncryptedMessage);
-
-  const saltResponse = await sendToSalt(chatId, encryptedMessage, senderEncryptedMessage);
 });
 
 app.listen(PORT, () => {
@@ -66,16 +75,15 @@ async function encryptWithPublicKey(message, publicKey) {
 
 async function decryptWithPrivateKey(encryptedMessage, privateKey, passphrase) {
   try {
-
-  const privateKeyObj = await openpgp.decryptKey({
-    privateKey: await openpgp.readPrivateKey({ armoredKey: privateKey }),
-    passphrase: passphrase, // Provide the passphrase here
-  });
-  const { data: decrypted } = await openpgp.decrypt({
-    message: await openpgp.readMessage({ armoredMessage: encryptedMessage }),
-    decryptionKeys: [privateKeyObj],
-  });
-  return decrypted;
+    const privateKeyObj = await openpgp.decryptKey({
+      privateKey: await openpgp.readPrivateKey({ armoredKey: privateKey }),
+      passphrase: passphrase, // Provide the passphrase here
+    });
+    const { data: decrypted } = await openpgp.decrypt({
+      message: await openpgp.readMessage({ armoredMessage: encryptedMessage }),
+      decryptionKeys: [privateKeyObj],
+    });
+    return decrypted;
   } catch (error) {
     console.log('[DWPK]', error);
     return "Sorry. I didn't get that.";
