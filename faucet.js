@@ -1,4 +1,4 @@
-// Testnet faucet agent for Salt.
+// Testnet faucet agent for Salt, built on salt-agent-sdk.
 //
 // A worked example of an agent that *transacts*: message it an EVM address
 // (or just say "drip") and it sends you a small amount of testnet coin from
@@ -6,7 +6,7 @@
 //
 // Run with: node faucet.js
 // Needs .env with, in addition to the base agent vars (HOST, SALT_API_KEY,
-// SALT_APP_ID, APP_PUBLIC_KEY, APP_PRIVATE_KEY, USER_PUBLIC_KEY):
+// SALT_APP_ID, APP_PUBLIC_KEY, APP_PRIVATE_KEY):
 //   FAUCET_RPC_URL     - JSON-RPC endpoint for the testnet (e.g. Sepolia via dRPC/Infura)
 //   FAUCET_PRIVATE_KEY - hex private key of a funded testnet wallet (TESTNET ONLY)
 //   FAUCET_AMOUNT      - drip size in ETH units (default "0.01")
@@ -17,20 +17,15 @@
 // empty state -- one tap and a new user has testnet funds to play with.
 
 require('dotenv').config();
-const express = require('express');
-const openpgp = require('openpgp');
-const axios = require('axios');
 const { ethers } = require('ethers');
+const { createWebhookServer, createSaltClient, createIdentityStore, loadSaltAgentConfig, validateSaltAgentConfig } = require('salt-agent-sdk');
 
-const app = express();
-const PORT = process.env.PORT || 5001;
-const HOST = process.env.HOST;
-
-const userPublicKey = process.env.USER_PUBLIC_KEY;
-const appPublicKey = process.env.APP_PUBLIC_KEY;
-const appPrivateKey = process.env.APP_PRIVATE_KEY;
-const saltAppId = process.env.SALT_APP_ID;
-const apiKey = process.env.SALT_API_KEY;
+const config = loadSaltAgentConfig();
+const missing = validateSaltAgentConfig(config);
+if (missing.length) {
+  console.error(`Missing required env vars: ${missing.join(', ')}. Copy .env.example to .env and fill them in.`);
+  process.exit(1);
+}
 
 const rpcUrl = process.env.FAUCET_RPC_URL;
 const faucetKey = process.env.FAUCET_PRIVATE_KEY;
@@ -42,32 +37,20 @@ const chainId = parseInt(process.env.FAUCET_CHAIN_ID || '11155111', 10);
 const DRIP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const lastDrip = new Map();
 
-app.use(express.json());
-
-app.post('/', async (req, res) => {
-  // Always 200 quickly -- webhook retries would double-drip.
-  res.status(200).json({ response: 'Thanks!' });
-
-  const message = req.body.message;
-  if (!message || parseInt(message.user.id) === parseInt(saltAppId)) {
-    return;
-  }
-
-  const chatId = message.chat_id;
-  const text = await decryptWithPrivateKey(message.message, appPrivateKey, 'salt');
-  if (text === undefined) {
-    return;
-  }
-
-  const reply = await handleFaucetRequest(message.user.id, text);
-  await sendReply(chatId, reply);
+const client = createSaltClient({ host: config.host });
+const identities = createIdentityStore();
+identities.register({
+  saltAppId: config.saltAppId,
+  apiKey: config.saltApiKey,
+  publicKey: config.appPublicKey,
+  privateKey: config.appPrivateKey,
 });
 
 async function handleFaucetRequest(userId, text) {
   const addressMatch = text.match(/0x[a-fA-F0-9]{40}/);
   if (!addressMatch) {
     return [
-      'Hi! I\'m the Salt testnet faucet. 🚰',
+      "Hi! I'm the Salt testnet faucet. 🚰",
       `Send me the address of one of your **testnet** wallets and I'll send you ${dripAmount} testnet ETH to play with.`,
       'Tip: your wallet addresses are on the Wallets tab — tap Receive to copy one.',
     ].join('\n');
@@ -80,7 +63,7 @@ async function handleFaucetRequest(userId, text) {
   }
 
   if (!rpcUrl || !faucetKey) {
-    return 'The faucet isn\'t configured with a funded wallet yet — ask the operator to set FAUCET_RPC_URL and FAUCET_PRIVATE_KEY.';
+    return "The faucet isn't configured with a funded wallet yet — ask the operator to set FAUCET_RPC_URL and FAUCET_PRIVATE_KEY.";
   }
 
   try {
@@ -98,45 +81,18 @@ async function handleFaucetRequest(userId, text) {
   }
 }
 
-async function sendReply(chatId, plaintext) {
-  try {
-    const encryptedMessage = await encryptWithPublicKey(plaintext, userPublicKey);
-    const senderEncryptedMessage = await encryptWithPublicKey(plaintext, appPublicKey);
-    await axios.post(
-      `${HOST}/api/v1/messages`,
-      { chat_id: chatId, message: encryptedMessage, sender_message: senderEncryptedMessage },
-      { headers: { 'api-key': apiKey } }
-    );
-  } catch (error) {
-    console.error('[FAUCET] reply failed:', error.message);
-  }
+async function onMessage(ctx) {
+  const reply = await handleFaucetRequest(ctx.senderId, ctx.text);
+  await ctx.reply(reply);
 }
 
-async function encryptWithPublicKey(message, publicKey) {
-  const publicKeyObj = await openpgp.readKey({ armoredKey: publicKey });
-  return openpgp.encrypt({
-    message: await openpgp.createMessage({ text: message }),
-    encryptionKeys: publicKeyObj,
-  });
-}
-
-async function decryptWithPrivateKey(encryptedMessage, privateKey, passphrase) {
-  try {
-    const privateKeyObj = await openpgp.decryptKey({
-      privateKey: await openpgp.readPrivateKey({ armoredKey: privateKey }),
-      passphrase: passphrase,
-    });
-    const { data: decrypted } = await openpgp.decrypt({
-      message: await openpgp.readMessage({ armoredMessage: encryptedMessage }),
-      decryptionKeys: [privateKeyObj],
-    });
-    return decrypted;
-  } catch (error) {
-    console.log('[FAUCET][DWPK]', error.message);
-    return undefined;
-  }
-}
-
-app.listen(PORT, () => {
-  console.log(`Faucet agent listening on port ${PORT}`);
+const server = createWebhookServer({
+  client,
+  identities,
+  pgpPassphrase: config.pgpPassphrase,
+  webhookSharedSecret: config.webhookSharedSecret,
+  onMessage,
 });
+
+server.listen(process.env.PORT ? parseInt(process.env.PORT, 10) : 5001);
+console.log(`Faucet agent listening on port ${process.env.PORT || 5001}`);

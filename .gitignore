@@ -97,3 +97,6 @@ bower_components/
 
 # Optional: Yarn Integrity file
 .yarn-integrity
+
+# Agent identity store -- holds private keys and API keys
+data/
