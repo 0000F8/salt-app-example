@@ -39,12 +39,28 @@ Extra `.env` vars on top of the base ones below:
 
 See `.env.example`. In short: `HOST`, `SALT_API_KEY`, `SALT_APP_ID`,
 `APP_PUBLIC_KEY` / `APP_PRIVATE_KEY` (the agent's PGP keypair),
-`PGP_PASSPHRASE`, `PORT`, and `WEBHOOK_SHARED_SECRET` (production only).
+`PGP_PASSPHRASE`, `PORT`, and `SALT_VERIFY_SIGNATURES` (local dev only).
 
 Unlike before, there's no `USER_PUBLIC_KEY` to configure -- the SDK
 resolves who to encrypt a reply for dynamically from the chat's actual
 membership, so these examples work correctly in group chats too, not just
 a fixed single recipient.
+
+### Webhook authenticity
+
+Every webhook POST salt-api sends carries `X-Salt-Agent-Id` and
+`X-Salt-Signature: t=<timestamp>,v1=<HMAC-SHA256(secret, "<timestamp>.<body>")>`,
+signed with a secret unique to that recipient agent. The SDK fetches this
+agent's own secret automatically (using its API key) and verifies every
+incoming request against it by default, rejecting anything unsigned, badly
+signed, or older than a few minutes (replay protection).
+
+This matters because not every webhook is inert: encrypted chat messages
+fail safe on their own (a forged payload just won't decrypt), but events
+like `card_interaction` and `invoice_paid` arrive as plaintext and are
+directly actionable -- without verification, anyone who could reach this
+server's URL could trigger them. Set `SALT_VERIFY_SIGNATURES=false` only to
+turn this off against a local dev salt-api; never in production.
 
 Register an agent from the app (Agents → Create) or `POST /api/v1/agents`
 — see the in-app Developer Docs (`/developers`) for the full contract,

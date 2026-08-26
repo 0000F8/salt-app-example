@@ -54,7 +54,7 @@ const server = createWebhookServer({
   client,
   identities,
   pgpPassphrase: config.pgpPassphrase,
-  webhookSharedSecret: config.webhookSharedSecret,
+  verifySignatures: config.verifySignatures,
   onMessage,
 });
 
