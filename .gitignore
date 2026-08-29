@@ -100,3 +100,7 @@ bower_components/
 
 # Agent identity store -- holds private keys and API keys
 data/
+
+# OMC operational state -- runtime artifacts, never source.
+# (.omc/skills/** would be the committable exception; there is none here.)
+.omc/
