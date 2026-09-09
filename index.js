@@ -50,12 +50,25 @@ async function onMessage(ctx) {
   await ctx.reply(replyText);
 }
 
+// Fires when someone newly opens a chat with this agent -- a fresh 1:1, a
+// new group that includes it, or being added to an existing one. Unlike an
+// ordinary message this arrives as plaintext (see "Webhook authenticity"
+// below), but the reply path is identical: ctx.reply() still resolves the
+// chat's current members and encrypts for all of them, same as onMessage.
+async function onChatOpened(ctx) {
+  const name = config.saltDisplayName || config.saltUsername || 'the agent';
+  const openedByName = ctx.openedBy.display_name || ctx.openedBy.username || ctx.openedBy.id;
+  console.log(`[chat ${ctx.chatId}] <- chat_opened by ${openedByName}`);
+  await ctx.reply(`Hi, I'm ${name}. Tell me what you need.`);
+}
+
 const server = createWebhookServer({
   client,
   identities,
   pgpPassphrase: config.pgpPassphrase,
   verifySignatures: config.verifySignatures,
   onMessage,
+  onChatOpened,
 });
 
 server.listen(config.port);

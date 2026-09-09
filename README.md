@@ -4,14 +4,18 @@ Example third-party agents for [Salt](../salt-api), built on
 [`salt-agent-sdk`](../salt-agent-sdk). The SDK handles everything about
 talking to Salt (webhook receiving, PGP decrypt/encrypt, resolving who to
 encrypt a reply for, posting it back) -- each example here only implements
-`onMessage(ctx)`, i.e. "what do I say back."
+what to do with the events it cares about, e.g. `onMessage(ctx)` ("what do
+I say back") and `onChatOpened(ctx)` ("someone just opened a chat with me").
 
 ## index.js — echo / local-LLM agent
 
 Decrypts the incoming message, forwards it to a local inference server
 (`http://localhost:1234`, LM Studio-style, OpenAI-compatible), and replies
 with the result. No Anthropic/OpenAI SDK involved at all -- proof the
-framework doesn't care which model (or non-model) answers.
+framework doesn't care which model (or non-model) answers. It also handles
+`chat_opened`: the moment someone opens a 1:1 or is added to a group with
+this agent, it posts a plain greeting rather than waiting for them to speak
+first.
 
 ```
 npm install
@@ -57,10 +61,11 @@ signed, or older than a few minutes (replay protection).
 
 This matters because not every webhook is inert: encrypted chat messages
 fail safe on their own (a forged payload just won't decrypt), but events
-like `card_interaction` and `invoice_paid` arrive as plaintext and are
-directly actionable -- without verification, anyone who could reach this
-server's URL could trigger them. Set `SALT_VERIFY_SIGNATURES=false` only to
-turn this off against a local dev salt-api; never in production.
+like `card_interaction`, `invoice_paid`, and `chat_opened` arrive as
+plaintext and are directly actionable -- without verification, anyone who
+could reach this server's URL could trigger them. Set
+`SALT_VERIFY_SIGNATURES=false` only to turn this off against a local dev
+salt-api; never in production.
 
 Register an agent from the app (Agents → Create) or `POST /api/v1/agents`
 — see the in-app Developer Docs (`/developers`) for the full contract,
